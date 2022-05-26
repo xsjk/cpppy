@@ -48,40 +48,20 @@ namespace python
       bool is_ref;
       handle_base(bool is_ref) : is_ref(is_ref) {}
 
-      virtual Storage copy(Storage) = 0;   // it will call specific copy constructor of T
-      virtual Type* type() = 0; // it will call specific typeid of T
-      virtual Size size() = 0;  // it will call specific sizeof of T
-      virtual void destroy(Storage) = 0;     // it will call specific destructor of T
-      
+      virtual Storage copy(Storage) = 0;
+      virtual Type* type() = 0;
+      virtual Size size() = 0;
+      virtual void destroy(Storage) = 0;
+
+      virtual bool __bool__(Storage) = 0;
+      virtual char __char__(Storage) = 0;
+      virtual int __int__(Storage) = 0;
+      virtual double __double__(Storage) = 0;     
       virtual std::string __str__(Storage) = 0;
       virtual std::string __repr__(Storage) = 0;
 
-      #define DEF_OPERAND(res,name,op,...) virtual res __##name##__(__VA_ARGS__) { throw std::runtime_error("\033[1;31mTypeError\033[0m: operator" #op " is not supported"); }
-      #define DEF_UNARY(...) DEF_OPERAND(__VA_ARGS__,Storage)
-      #define DEF_BINARY(...) DEF_OPERAND(__VA_ARGS__,Storage,Storage)
-
-
-      // DEF_OPERAND(var&,dref,*)
-      // DEF_OPERAND(var*,addr,->)
-
-      // DEF_OPERAND(var&,rinc,++)
-      // DEF_OPERAND(var&,rdec,--)
-      // DEF_OPERAND(var,linc,++,int)
-      // DEF_OPERAND(var,ldec,--,int)
-
-      // DEF_OPERAND(var&,getitem,[],Storage,int)
-
-      // DEF_UNARY(Storage,neg,-) DEF_UNARY(Storage,pos,+) DEF_UNARY(Storage,invert,~)
-      // DEF_BINARY(Storage,iadd,+=) DEF_BINARY(Storage,isub,-=) DEF_BINARY(Storage,imul,*=) DEF_BINARY(Storage,idiv,/=) DEF_BINARY(Storage,imod,%=)
-      // DEF_BINARY(Storage,iand,&=) DEF_BINARY(Storage,ior,|=) DEF_BINARY(Storage,ixor,^=) DEF_BINARY(Storage,ilshift,<<=) DEF_BINARY(Storage,irshift,>>=)
-      
-      // DEF_UNARY(bool,bool,bool)
-
-      #undef DEF_UNARY
-      #undef DEF_BINARY
-      #undef DEF_OPERAND
-
-      
+      virtual var __neg__(Storage) = 0;
+      virtual var __pos__(Storage) = 0;  
       virtual var __dref__(Storage) = 0;
       virtual var __rinc__(Storage) = 0;
       virtual var __rdec__(Storage) = 0;
@@ -107,9 +87,6 @@ namespace python
       virtual var __lshift__(Storage, Storage) = 0;
       virtual var __rshift__(Storage, Storage) = 0;
 
-      virtual var __neg__(Storage) = 0;
-      virtual var __pos__(Storage) = 0;
-
       virtual var __iadd__(Storage, Storage) = 0;
       virtual var __isub__(Storage, Storage) = 0;
       virtual var __imul__(Storage, Storage) = 0;
@@ -120,12 +97,6 @@ namespace python
       virtual var __ixor__(Storage, Storage) = 0;
       virtual var __ilshift__(Storage, Storage) = 0;
       virtual var __irshift__(Storage, Storage) = 0;
-
-      virtual bool __bool__(Storage) = 0;
-      virtual char __char__(Storage) = 0;
-      virtual int __int__(Storage) = 0;
-      virtual double __double__(Storage) = 0;
-
     };
 
 
@@ -166,8 +137,36 @@ namespace python
       template <typename S> static var __getitem__(...) {
         throw std::runtime_error("\033[1;31mTypeError\033[0m: type " + std::string(abi::__cxa_demangle(typeid(S).name(), 0, 0, 0)) + " has no operator []");
       }
-      template <typename S, typename=decltype(std::declval<S&>()[std::declval<var>()])>  static var __getitem__(Storage o, var k) {
-        return var((*(S*)o)[k]);
+      // template <typename S, typename=decltype(std::declval<S&>()[std::declval<var>()]),std::enable_if_t<!std::is_const<S>::value,int> = 0>
+      // template <typename T,typename S=std::remove_const_t<T>,typename=decltype(std::declval<S&>()[std::declval<var>()])>
+      // static var __getitem__(Storage o, var k) {
+      //   return var( &((*(S*)o)[k]) ,new handle<S>(true));
+      // }
+
+      
+      template<typename U> 
+      class can_getitem_ref {
+          template<typename S,typename=decltype(std::addressof(std::declval<S>()[std::declval<var>()]))> 
+            static std::true_type check(int); 
+          template<typename> 
+            static std::false_type check(...); 
+          public: static constexpr bool value = decltype(check<U>(0))::value && !std::is_pointer<U>::value; 
+      };
+      template<typename U>
+      static constexpr bool can_getitem_ref_v = can_getitem_ref<U>::value;
+      
+
+      // get a reference
+      template <typename S, typename V=decltype(std::declval<S>()[std::declval<var>()]),
+                std::enable_if_t<can_getitem_ref_v<S>,int> = 0>
+      static var __getitem__(Storage o, var k) {
+        return var(std::addressof((*static_cast<S*>(o))[k]) ,new handle<V>(true));
+      }
+      // get a copy
+      template <typename S, typename V=decltype(std::declval<S>()[std::declval<var>()]),
+                std::enable_if_t<!can_getitem_ref_v<S>,int> = 0>
+      static var __getitem__(Storage o, var k) {
+        return var((*static_cast<S*>(o))[k]);
       }
 
       template<typename S,typename=decltype(std::cout<<std::declval<S>())>
@@ -246,6 +245,8 @@ namespace python
     Storage m_data;
     handle_base* m_handle;
 
+    var(Storage o, handle_base* h) : m_data(o), m_handle(h) {}
+
     
     
 
@@ -288,19 +289,19 @@ namespace python
 
 
     // constructors
-    var() : m_data(nullptr), m_handle(nullptr) {}
+    var() : var(nullptr,nullptr) {}
     var(var &o) : m_data(o.m_handle ? o.m_handle->copy(o.m_data) : nullptr), m_handle(o.m_handle) {}
     var(const var &o) : m_data(o.m_handle ? o.m_handle->copy(o.m_data) : nullptr), m_handle(o.m_handle) {}
     var(var &&o) : m_data(o.m_data), m_handle(o.m_handle) { o.m_data = nullptr; o.m_handle = nullptr; }
 
-    
-
     /// @note: the most important constructor that construct from var type
     template <typename T> var(T &&v) : m_data(new_<T>(std::forward<T>(v))), m_handle(new handle<T>()) {}
     template <typename T, typename...A> var(A &&...a) : m_data(new_<T>(std::forward<A>(a)...)), m_handle(new handle<T>()) {}
-    /// @note: call var(something) explicitly to construct by reference
-    template <typename T, std::enable_if_t<!std::is_const<T>::value>> 
-    explicit var(T &v) : m_data(&v), m_handle(new handle<T>(true)) {}
+    // /// @note: call var(something) explicitly to construct by reference
+    // template <typename T, std::enable_if_t<!std::is_const<T>::value>> 
+    // explicit var(T &v) : m_data(&v), m_handle(new handle<T>(true)) {
+    //   std::cout << "var(T&) called" << std::endl;
+    // }
 
 
 
@@ -313,11 +314,23 @@ namespace python
     var& operator=(var &&o) { var(std::move(o)).swap(*this);  return *this; }
     // template <typename T,typename=decltype(*(T*)nullptr = std::declval<T>())>
     template <typename T>
-     var& operator=(T &&v) {
-      if (type() != typeid(T)) 
+    var& operator=(T &&v) {
+      
+      if (type() != typeid(T) && !is_ref()) {
         var(std::forward<T>(v)).swap(*this);
-      else
+      } else {
         *((T*)m_data) = std::forward<T>(v);
+      }
+      return *this; 
+    }
+
+    template<typename T>
+    var& operator=(const T &v) {
+      if (type() != typeid(T) && !is_ref()) {
+        var(v).swap(*this);
+      } else {
+        *((T*)m_data) = v;
+      }
       return *this; 
     }
 

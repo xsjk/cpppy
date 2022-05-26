@@ -13,6 +13,9 @@ public:
     int f(int){
         return 0;
     }
+    int operator[](int i){
+        return v;
+    }
 };
 
 int main(){
@@ -26,10 +29,19 @@ int main(){
 
     int i = 100;
 
-    b = std::vector<int>(5,2);
+    b = C{10};
+
+    int cc = b[0];
+
     c = std::string("world");
     d = std::string("hello");
-    d.get<std::string>()[0] = 'H';
+    // d.get<std::string>()[0] = 'H';
+    // std::cout << (void*)&(d.get<std::string>()[0]) << std::endl;
+    // std::cout << (void*)&((*(std::string*)(&d))[0]) << std::endl;
+    // std::cout << &d[0] << std::endl;
+    std::cout << d[0].is_ref() << std::endl;
+    std::cout << d << std::endl;
+
     // c = i;
     d = 1;
     (d += 1) +=1;
