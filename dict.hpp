@@ -36,6 +36,17 @@ namespace python {
     void clear() { m_data->clear(); }
 
 
+    friend std::ostream& operator<<(std::ostream& os, const dict& d) {
+      os << "{";
+      for (auto [k,v]: *d.m_data)
+        os << k.__repr__() << ": " << v.__repr__() << ", ";
+      if(!d.empty()) 
+        os << "\b\b";
+      os << "}";
+      return os;
+    }
+
+
   };
 
 

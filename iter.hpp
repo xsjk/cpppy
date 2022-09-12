@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <vector>
 #include <list>
+#include <functional>
 
 namespace python {
 

@@ -28,9 +28,11 @@ int main(){
     d = 1;
     (d += 1) +=1;
 
-    const auto ss = std::string("hello");
+    std::string ss{ "hello" };
     c = ss;
+    b = c[0];
     c[0] = 'W';
+    std::cout << b << std::endl;
     std::cout << c << std::endl;
     std::cout << ss << std::endl;
     std::cout << ++d << std::endl;

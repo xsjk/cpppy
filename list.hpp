@@ -11,6 +11,7 @@
 #include <sstream>
 #include <iostream>
 #include <typeinfo>
+#include <functional>
 
 
 
@@ -199,7 +200,7 @@ public:
         return (m_data->at(i)).get<T>();
     }
     list& set(size_type i, value_type value) {
-        // m_data->at(i) = value;
+        m_data->at(i) = value;
         return *this;
     }
 

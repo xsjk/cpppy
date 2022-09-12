@@ -7,8 +7,6 @@
 
 #include <iostream>
 #include <typeinfo>
-// #include <var>
-// #include "my_any.hpp"
 #include <cxxabi.h>
 #include <initializer_list>
 #include <variant>
@@ -35,7 +33,6 @@ namespace python
     bad_cast(const std::type_info &t1, const std::type_info &t2) : bad_cast("\033[1;31mTypeError\033[0m:  implicit conversion from " + type(t1) + " to " + type(t2)) {}
     const char *what() const noexcept override { return error.c_str(); }
   };
-
 
 
   class var {
@@ -339,28 +336,36 @@ namespace python
     // assignment
     var& operator=(const var &o) { var(o).swap(*this); return *this; }
     var& operator=(var &o) { var(o).swap(*this); return *this; }
-    var& operator=(var &&o) { var(std::move(o)).swap(*this);  return *this; }
+    var& operator=(var &&o) {
+      if (o.is_ref()) {
+        m_handle = o.m_handle;
+        o.m_handle = nullptr;
+        m_data = m_handle->copy(o.m_data);
+      } else { 
+        var(std::move(o)).swap(*this);  
+      }
+      return *this; 
+    }
     // template <typename T,typename=decltype(*(T*)nullptr = std::declval<T>())>
     template <typename T>
     var& operator=(T &&v) {
-      
-      if (type() != typeid(T) && !is_ref()) {
+      if (type() != typeid(T)) {
         var(std::forward<T>(v)).swap(*this);
       } else {
-        *((T*)m_data) = std::forward<T>(v);
+        *static_cast<std::decay_t<T>*>(m_data) = std::forward<T>(v);
       }
       return *this; 
     }
 
-    template<typename T>
-    var& operator=(const T &v) {
-      if (type() != typeid(T) && !is_ref()) {
-        var(v).swap(*this);
-      } else {
-        *((T*)m_data) = v;
-      }
-      return *this; 
-    }
+    // template<typename T>
+    // var& operator=(const T &v) {
+    //   if (type() != typeid(T) && !is_ref()) {
+    //     var(v).swap(*this);
+    //   } else {
+    //     *((T*)m_data) = v;
+    //   }
+    //   return *this; 
+    // }
 
     // template <typename T, typename...A> var& operator=(A &&...a) { var(std::forward<A>(a)...).swap(*this);  return *this; }
 
