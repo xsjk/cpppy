@@ -46,12 +46,14 @@ public:
     template<typename T>
     list(std::vector<T> l) : m_data(std::make_shared<std::vector<value_type>>(l)) {}
     list(std::initializer_list<value_type> l) : m_data(std::make_shared<std::vector<value_type>>(l)) {}
-    template <typename it>
-    list(it first, it last) : m_data(std::make_shared<std::vector<value_type>>(first, last)) {}
+    template <typename it> list(it iter) {
+        m_data = std::make_shared<std::vector<value_type>>();
+        for(auto i: iter) m_data->push_back(i);
+    }
 
 
 
-    // common methods
+    // cpp methods
     reference at(size_type i) { return const_cast<reference>(static_cast<const list&>(*this).at(i)); }
     const_reference at(size_type i) const {
         i = IDX(i);
@@ -82,11 +84,13 @@ public:
 
 
     
-    // python
+    // python methods
     list& append(value_type value) {
         m_data->push_back(value);
         return *this;
     }
+    template <typename ...U> 
+    list& append(const value_type& v,U&& ...args) { return append(v),append(args...); }
 
     void clear() {
         m_data->clear();
@@ -98,9 +102,7 @@ public:
         return std::count(m_data->begin(), m_data->end(), value);
     }
 
-    private: list& extend(const value_type& v) { return append(v); } 
-    public: template <typename ...U> 
-    list& extend(const value_type& v,U&& ...args) { return append(v),extend(args...); }
+
     list& extend(const list& l) {
         m_data->insert(m_data->end(), l.begin(), l.end());
         return *this;
@@ -142,11 +144,12 @@ public:
         return *this;
     }
 
-    list& sort() {
-        std::sort(m_data->begin(), m_data->end());
-        return *this;
+    list& sort(bool reverse = false) {
+        switch (reverse) {
+            case true: return sort(std::greater<value_type>());
+            case false: return sort(std::less<value_type>());
+        }
     }
-
     list& sort(std::function<bool(value_type, value_type)> cmp) {
         std::sort(m_data->begin(), m_data->end(), cmp);
         return *this;
@@ -157,6 +160,35 @@ public:
         if (i < 0 || i >= LEN) 
             throw std::out_of_range("\033[1;31mIndexError\033[0m: list index out of range");
         m_data->erase(std::next(m_data->begin(), i));
+    }
+
+    // numpy
+    bool all() const {
+        for (auto& v : *m_data)
+            if (!v) return false;
+        return true;
+    }
+
+    bool any() const {
+        for (auto& v : *m_data)
+            if (v) return true;
+        return false;
+    }
+
+    size_type argmax() const {
+        if (empty()) throw std::out_of_range("\033[1;31mIndexError\033[0m: argmax from empty list");
+        return std::distance(m_data->begin(), std::max_element(m_data->begin(), m_data->end()));
+    }
+
+    size_type argmin() const {
+        if (empty()) throw std::out_of_range("\033[1;31mIndexError\033[0m: argmin from empty list");
+        return std::distance(m_data->begin(), std::min_element(m_data->begin(), m_data->end()));
+    }
+
+    list argsort() const {
+        list l;
+        l.sort(std::less<value_type>());
+        return l;
     }
 
 
@@ -196,6 +228,12 @@ public:
         }
         return l;
     }
+
+    list& for_each(std::function<void(value_type&)> f) {
+        for (auto& v : *m_data) f(v);
+        return *this;
+    }
+
 
 
     reference operator[](size_type i) { return at(i); }

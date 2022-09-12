@@ -97,6 +97,10 @@ namespace python
       virtual var __ixor__(Storage, Storage) = 0;
       virtual var __ilshift__(Storage, Storage) = 0;
       virtual var __irshift__(Storage, Storage) = 0;
+
+
+      virtual var __begin__(Storage) = 0;
+      virtual var __end__(Storage) = 0;
     };
 
 
@@ -144,16 +148,14 @@ namespace python
       // }
 
       
-      template<typename U> 
-      class can_getitem_ref {
+      template<typename U> class can_getitem_ref {
           template<typename S,typename=decltype(std::addressof(std::declval<S>()[std::declval<var>()]))> 
             static std::true_type check(int); 
           template<typename> 
             static std::false_type check(...); 
           public: static constexpr bool value = decltype(check<U>(0))::value && !std::is_pointer<U>::value; 
       };
-      template<typename U>
-      static constexpr bool can_getitem_ref_v = can_getitem_ref<U>::value;
+      template<typename U> static constexpr bool can_getitem_ref_v = can_getitem_ref<U>::value;
       
 
       // get a reference
@@ -192,8 +194,22 @@ namespace python
       
       template<typename S>
         static std::string __str__(...) { 
-          throw std::runtime_error("\033[1;31mTypeError\033[0m: type " + std::string(abi::__cxa_demangle(typeid(S).name(), 0, 0, 0)) + " is unprintable");
+          throw std::runtime_error("\033[1;31mTypeError\033[0m: type " + std::string(abi::__cxa_demangle(typeid(S).name(), 0, 0, 0)) + " can not be converted to string");
         }
+
+      #define DEF_MEMBER_FUNC(NAME) \
+      template<typename S,typename=decltype(std::declval<S>().NAME())> \
+        static var __##NAME##__(Storage o) { \
+          return static_cast<S*>(o)->NAME(); \
+        } \
+      template<typename S>  \
+        static var __##NAME##__(...) { \
+          throw std::runtime_error("\033[1;31mTypeError\033[0m: type " + std::string(abi::__cxa_demangle(typeid(S).name(), 0, 0, 0)) + " has no member function " #NAME); \
+        }
+      DEF_MEMBER_FUNC(begin) DEF_MEMBER_FUNC(end)
+      #undef DEF_MEMBER_FUNC
+
+    
 
     };
 
@@ -235,6 +251,9 @@ namespace python
         else
           return __str__(o);        
       }
+
+      var __begin__(Storage o) override { return handle_helper::__begin__<T>(o); }
+      var __end__(Storage o) override { return handle_helper::__end__<T>(o); }
       
     };
     
@@ -254,7 +273,7 @@ namespace python
     // APIs
     bool has_value() const { return m_handle != nullptr; }
     bool is_empty() const { return m_handle == nullptr; }
-    bool is_ref() const { return m_handle->is_ref; }
+    bool is_ref() const { return m_handle ? m_handle->is_ref : false; }
     // bool is_ptr() const { return 
     Type& type() const { return m_handle ? *m_handle->type():  typeid(void) ; }
     Size size() const { return m_handle ? m_handle->size():0; }
@@ -287,6 +306,15 @@ namespace python
       std::swap(m_handle, o.m_handle);
     }
 
+    var begin() const {
+      if (m_handle) return m_handle->__begin__(m_data);
+      else throw std::runtime_error("TypeError: cannot call begin() on None");
+    }
+    var end() const {
+      if (m_handle) return m_handle->__end__(m_data);
+      else throw std::runtime_error("TypeError: cannot call end() on None");
+    }
+
 
     // constructors
     var() : var(nullptr,nullptr) {}
@@ -296,7 +324,7 @@ namespace python
 
     /// @note: the most important constructor that construct from var type
     template <typename T> var(T &&v) : m_data(new_<T>(std::forward<T>(v))), m_handle(new handle<T>()) {}
-    template <typename T, typename...A> var(A &&...a) : m_data(new_<T>(std::forward<A>(a)...)), m_handle(new handle<T>()) {}
+    // template <typename T, typename...A> var(A &&...a) : m_data(new_<T>(std::forward<A>(a)...)), m_handle(new handle<T>()) {}
     // /// @note: call var(something) explicitly to construct by reference
     // template <typename T, std::enable_if_t<!std::is_const<T>::value>> 
     // explicit var(T &v) : m_data(&v), m_handle(new handle<T>(true)) {
@@ -334,24 +362,22 @@ namespace python
       return *this; 
     }
 
-    template <typename T, typename...A> var& operator=(A &&...a) { var(std::forward<A>(a)...).swap(*this);  return *this; }
+    // template <typename T, typename...A> var& operator=(A &&...a) { var(std::forward<A>(a)...).swap(*this);  return *this; }
 
-    #define DEF_CMP(OP,NAME) \
-      bool operator OP(const var& o) const { \
-        if (type() == o.type()) \
-          return m_handle->__##NAME##__(m_data, o.m_data); \
-        return false; \
-      }
-    // comparison
-    DEF_CMP(==,eq) DEF_CMP(!=,ne) DEF_CMP(<,lt) DEF_CMP(<=,le) DEF_CMP(>,gt) DEF_CMP(>=,ge)
-    #undef DEF_CMP
-
+    bool operator==(const var& o) const {
+      if (type() == o.type())
+        return m_handle->__eq__(m_data, o.m_data);
+      return false;
+    }
     #define DEF_CALC(OP,NAME) \
       var operator OP(const var& o) const { \
         if (type() == o.type()) \
           return m_handle->__##NAME##__(m_data, o.m_data); \
-        throw std::runtime_error("\033[1;31mType mismatch\033[0m: got "+python::type(type())+ " " #OP " " +python::type(o.type()) + " only operation of the same type is allowed"); \
+        throw std::runtime_error("\033[1;31mType mismatch\033[0m: got "+python::type(type())+ " " #OP " " +python::type(o.type()) + ", but only operation of the same type is allowed"); \
       }
+    // comparison
+    DEF_CALC(!=,ne) DEF_CALC(<,lt) DEF_CALC(<=,le) DEF_CALC(>,gt) DEF_CALC(>=,ge)
+    
 
     // arithmetic operators
     DEF_CALC(+,add) DEF_CALC(-,sub) DEF_CALC(*,mul) DEF_CALC(/,div) DEF_CALC(%,mod)
@@ -377,8 +403,8 @@ namespace python
       var operator OP() const { \
         return m_handle->__##NAME##__(m_data); \
       }
-    
     DEF_UNARY(+,pos) DEF_UNARY(-,neg) DEF_UNARY(*,dref)
+    #undef DEF_UNARY
 
     var operator++(int) {
       return m_handle->__rinc__(m_data);
